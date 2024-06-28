@@ -31,10 +31,11 @@ namespace DarsyDBCleanUpUsers
 
 public class DarsyUpdateInactiveUsers
 {   
-    public static string CallGraphAPI(RequestViewModel requestViewModel)
+    public static string connectionString = ConfigurationManager.AppSettings["DbConnection"];
+    public static HttpResponseMessage CallGraphAPI(RequestViewModel requestViewModel)
     {
         string responseContent = String.Empty;
-
+        HttpResponseMessage httpResponseMessage = new HttpResponseMessage();
         try
         {
             string requesturl = ConfigurationManager.AppSettings["RequestUrl"];
@@ -48,18 +49,16 @@ public class DarsyUpdateInactiveUsers
 
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            HttpResponseMessage response = httpClient.PostAsync(requesturl, content).Result;
+            httpResponseMessage = httpClient.PostAsync(requesturl, content).Result;
 
-            responseContent = response.Content.ReadAsStringAsync().Result;            
-
-            if (response.IsSuccessStatusCode)
+            if (httpResponseMessage.IsSuccessStatusCode)
             {
-                string result = response.Content.ReadAsStringAsync().Result;
-                Console.WriteLine("API call successful. Response:");
+                Console.WriteLine("API call successful. Response:");                 
             }
             else
             {
-                Console.WriteLine($"Error calling API. Status code: {response.StatusCode}");
+                Console.WriteLine($"Error calling API. Status code: {httpResponseMessage.StatusCode}");                
+                throw new Exception("Error Calling the API, Please check the Bearer Token");
             }         
         }
         catch (HttpRequestException httpEx)
@@ -71,12 +70,11 @@ public class DarsyUpdateInactiveUsers
             Console.WriteLine($"General Error: {ex.Message}");
         }
 
-        return responseContent;
+        return httpResponseMessage;
     }
 
     public static void RetriveAndProcessUsers()
     {
-        string connectionString = ConfigurationManager.AppSettings["DbConnection"];
         
         try
         {
@@ -84,7 +82,7 @@ public class DarsyUpdateInactiveUsers
             {
                 connection.Open();
                 Console.WriteLine("Connection Successful");
-                string query = "SELECT UserEmail, UserAlias, UserDomain FROM Users";
+                string query = "SELECT UserEmail, UserAlias, UserDomain,IsActive FROM Users";
                 SqlCommand command = new SqlCommand(query, connection);
                 SqlDataReader reader = command.ExecuteReader();
 
@@ -93,6 +91,7 @@ public class DarsyUpdateInactiveUsers
                     string userAlias = reader["UserAlias"].ToString();
                     string userDomain = reader["UserDomain"].ToString();
                     string userEmail = reader["UserEmail"].ToString();
+                    bool isActive = (bool)reader["IsActive"];
 
                     var searchRequest = new RequestViewModel
                     {
@@ -109,26 +108,28 @@ public class DarsyUpdateInactiveUsers
                     };
 
                     Console.WriteLine($"Started Checking User by Graph API: {userEmail}");
-                    string responseContent = CallGraphAPI(searchRequest);
+                    var httpResponseMessage = CallGraphAPI(searchRequest);
+                    string responseContent = httpResponseMessage.Content.ReadAsStringAsync().Result;
                     Console.WriteLine($"Response from Graph API: {responseContent}");
 
-                    // Check if the user exists based on the API response
-                    bool userExists = CheckIfUserExists(responseContent);
-
-                    if (userExists)
+                    // Check if the user exists based on the API response,Not enters if StatusCode is Not 200;  
+                    if (httpResponseMessage.IsSuccessStatusCode)
                     {
-                        Console.WriteLine($"User '{userEmail}' exists in the Graph API response.");
-                        // Perform further actions if the user exists
-                    }
-                    else
-                    {
-                        Console.WriteLine($"User '{userEmail}' does not exist in the Graph API response.");
-                        // Perform actions for non-existent users
-                    }
+                        bool userExists = CheckIfUserExists(responseContent);
 
-                    Console.WriteLine($"Completed Checking User by Graph API: {userEmail}");
-                    Console.WriteLine(); 
+                        if (userExists)
+                        {
+                            Console.WriteLine($"User '{userEmail}' exists in the Graph API response.");                            
+                        }
+                        else
+                        {
+                            Console.WriteLine($"User '{userEmail}' does not exist in the Graph API response.");
+                            UpdateUserIsActiveStatus(userEmail);
+                        }
 
+                        Console.WriteLine($"Completed Checking User by Graph API: {userEmail}");
+                        Console.WriteLine();
+                    }
                 }              
                 reader.Close();
             }
@@ -160,6 +161,46 @@ public class DarsyUpdateInactiveUsers
         {
             Console.WriteLine($"Error parsing Graph API response: {ex.Message}");
             return false; // Return false in case of any error or unexpected response structure
+        }
+    }
+
+    public static void UpdateUserIsActiveStatus(string userEmail)
+    {
+        try
+        {
+            using (SqlConnection connection = new SqlConnection(connectionString))
+            {
+                connection.Open();
+                using (SqlTransaction transaction = connection.BeginTransaction())
+                {
+                    string updateQuery = "UPDATE Users SET IsActive = @IsActive WHERE UserEmail = @UserEmail";
+                    SqlCommand updateCommand = new SqlCommand(updateQuery, connection, transaction);
+                    updateCommand.Parameters.AddWithValue("@IsActive", 0);
+                    updateCommand.Parameters.AddWithValue("@UserEmail", userEmail);
+
+                    int rowsAffected = updateCommand.ExecuteNonQuery();
+                    transaction.Commit();
+                    if (rowsAffected > 0)
+                    {
+                        Console.WriteLine($"Successfully updated IsActive status for user '{userEmail}' to 0.");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"No rows were updated for user '{userEmail}'.");
+                    }
+                }
+            }
+        }
+        catch (SqlException sqlEx)
+        {
+            Console.WriteLine($"SQL Error while updating IsActive status: {sqlEx.Message}");
+            // Optionally log the exception to a file or other logging mechanism
+            throw new Exception("Error updating IsActive status in database.", sqlEx);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"General Error while updating IsActive status: {ex.Message}");
+            // Optionally log the exception to a file or other logging mechanism            
         }
     }
 }
