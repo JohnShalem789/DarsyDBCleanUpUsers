@@ -115,7 +115,7 @@ public class DarsyUpdateInactiveUsers
                     // Check if the user exists based on the API response,Not enters if StatusCode is Not 200;  
                     if (httpResponseMessage.IsSuccessStatusCode)
                     {
-                        bool userExists = CheckIfUserExists(responseContent);
+                        bool userExists = CheckIfUserExistsV1(responseContent);
 
                         if (userExists)
                         {
@@ -163,6 +163,38 @@ public class DarsyUpdateInactiveUsers
             return false; // Return false in case of any error or unexpected response structure
         }
     }
+
+    public static bool CheckIfUserExistsV1(string responseContent)
+    {
+        try
+        {
+            dynamic responseObject = JsonConvert.DeserializeObject(responseContent);
+            // Check if there are any hits
+            if (responseObject.value.Count > 0 && responseObject.value[0].hitsContainers.Count > 0)
+            {
+                var hitsContainer = responseObject.value[0].hitsContainers[0];
+                if (hitsContainer.hits.Count > 0)
+                {
+                    // Check if the user is an OrganizationUser and works at Microsoft
+                    var resource = hitsContainer.hits[0].resource;
+                    if (resource != null && resource.companyName == "Microsoft" &&
+                        resource.personType != null && resource.personType.@class == "Person" &&
+                        resource.personType.subclass == "OrganizationUser")
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error parsing Graph API response: {ex.Message}");
+            return false; // Return false in case of any error or unexpected response structure
+        }
+    }
+
+
 
     public static void UpdateUserIsActiveStatus(string userEmail)
     {
