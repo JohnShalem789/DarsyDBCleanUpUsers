@@ -170,16 +170,16 @@ public class DarsyUpdateInactiveUsers
         {
             dynamic responseObject = JsonConvert.DeserializeObject(responseContent);
             // Check if there are any hits
-            if (responseObject.value.Count > 0 && responseObject.value[0].hitsContainers.Count > 0)
+            if (responseObject?.value.Count > 0 && responseObject?.value[0].hitsContainers.Count > 0)
             {
-                var hitsContainer = responseObject.value[0].hitsContainers[0];
-                if (hitsContainer.hits.Count > 0)
+                var hitsContainer = responseObject?.value[0].hitsContainers[0];
+                if (hitsContainer?.total > 0)
                 {
-                    // Check if the user is an OrganizationUser and works at Microsoft
+                    // Check if the user is an OrganizationUser
                     var resource = hitsContainer.hits[0].resource;
-                    if (resource != null && resource.companyName == "Microsoft" &&
-                        resource.personType != null && resource.personType.@class == "Person" &&
-                        resource.personType.subclass == "OrganizationUser")
+                    if (resource != null && resource?.companyName == "Microsoft" &&
+                        resource?.personType != null && resource?.personType.@class == "Person" &&
+                        resource?.personType.subclass == "OrganizationUser")
                     {
                         return true;
                     }
